@@ -51,7 +51,21 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$GITHUB_WORKSPACE/veyro-pack-release-key.p12"
+          # Strip any stray whitespace/newlines the secret may contain before decoding.
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d ' \t\r\n' | base64 --decode > "$GITHUB_WORKSPACE/veyro-pack-release-key.p12"
+          echo "Decoded keystore size: $(stat -c%s "$GITHUB_WORKSPACE/veyro-pack-release-key.p12") bytes"
+
+      - name: Verify keystore is readable
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          # Fail fast with a clear message if the decoded keystore is corrupt
+          # (e.g. the base64 secret was truncated when pasted).
+          keytool -list -storetype PKCS12 \
+            -keystore "$GITHUB_WORKSPACE/veyro-pack-release-key.p12" \
+            -storepass "$STORE_PASSWORD" >/dev/null \
+          || { echo "::error::Keystore is invalid/corrupt. Re-set the ANDROID_KEYSTORE_BASE64 secret from the exact .p12 base64."; exit 1; }
+          echo "Keystore verified OK."
 
       - name: Build signed release APK
         working-directory: android
